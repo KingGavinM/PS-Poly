@@ -66,8 +66,8 @@ class polydat:
 			info = open(self.get_infpath(),'w'); info.write(f'Creation Date\n{self.get_date()}\nName\n{self.get_name()}\nRoot\n{self.get_root()}\nPixel Size\n{self.get_px_size()}'); info.close()
 			np.save(self.get_datpath(),self.get_img())
 		elif pspoly_save_option == 'ask':
-			option1 = input(f'WARNING: A polydat object \'{self.get_id()}\' already exists.\nWould you like to overwrite it? (y/n): ')
-			if option1 == 'y':
+			option = input(f'WARNING: A polydat object \'{self.get_id()}\' already exists.\nWould you like to overwrite it? (y/n): ')
+			if option == 'y':
 				print(f'An old polydat object \'{self.get_id()}\' has been overwritten.')
 				rmtree(self.get_path())
 				os.mkdir(self.get_path())
@@ -194,6 +194,9 @@ class polydat:
 		path = self.get_path()
 		ldir = os.listdir(path)
 		return [f for f in ldir if os.path.isdir(os.path.join(path,f))]
+
+	def isolate_skeleton(self,particle):
+		return load(os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}'))
 
 	def get_particle(self,particle,skeleton=False,pad=0):
 		if skeleton:
