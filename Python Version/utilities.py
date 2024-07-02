@@ -1,9 +1,9 @@
-import numpy as np
+import numpy as _np
 
 def to_gray(img):
 	return (img[...,0] + img[...,1] + img[...,2]) / 3
 
-relu = np.vectorize(lambda x : max(0,x))
+relu = _np.vectorize(lambda x : max(0,x))
 
 def binary(n):
     if n > 1:
@@ -11,13 +11,13 @@ def binary(n):
     else: return f'{n%2}'
 
 def generate_patterns():
-    paths = np.zeros(256)
+    paths = _np.zeros(256)
     for n in range(256):
         b = f'{binary(n):0>8}'
         for i in range(8):
             if ( b[(i+1) % 8] == '0' ) and ( b[i] == '1' ):
                 paths[n] += 1
-    bundle = np.zeros(256)
+    bundle = _np.zeros(256)
     for n in range(256):
         b = f'{binary(n):0>8}'
         if b[7] == b[6] == b[0] == '1':
@@ -36,10 +36,10 @@ def generate_patterns():
     for n in range(256): 
         if paths[n] > 2: branch_patterns.append(n)
 
-    return paths.astype('int'), bundle.astype('int'), np.array(end_patterns), np.array(branch_patterns)
+    return paths.astype('int'), bundle.astype('int'), _np.array(end_patterns), _np.array(branch_patterns)
 
 def generate_dl():
-    dl = np.zeros(256)
+    dl = _np.zeros(256)
     for n in range(256):
         b = f'{binary(n):0>8}'
         L = D = R = U = False
