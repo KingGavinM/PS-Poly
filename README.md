@@ -6,6 +6,10 @@ The PS-Poly algorithm is a particle detection program designed to separate indiv
 
 Code is open source and available in both Igor Pro (WaveMetrics, Inc.) and Python. You will find tutorials for both versions in the tutorials/ directory of the GitHub repository. Source code is available in the pspoly/ directory.
 
+### Igor Package Requirements
+
+Igor Pro 7
+
 ### Python Package Requirements
 
 Python >= 3.8
