@@ -65,3 +65,10 @@ def generate_dl():
             dl[n] += (2**(1/2)/2)
 
     return dl
+
+def label0(img):
+    reprint = _np.copy(img).astype('int')
+    coords = _np.where(reprint==1)
+    for n in range(int(_np.sum(reprint))):
+        reprint[coords[0][n],coords[1][n]] = n+1
+    return reprint

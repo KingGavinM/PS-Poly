@@ -1,14 +1,28 @@
-# Basic Imports
+# External Imports
 import os as _os
 import numpy as _np
 import matplotlib.pyplot as _plt
 from datetime import date as _datetime
 from shutil import rmtree as _rmtree
 
-# PSPoly Imports
-import filters
-import length
-import utilities
+# PS-Poly Imports
+from . import filters
+from . import length
+from . import utilities
+
+'''
+Contents
+----------------------------------------------------------------------------------------------------------------------------------------------=
+1. Basic Methods
+2. Advanced Methods
+3. User-interface Methods
+'''
+
+'''
+1. Basic Methods
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Data handling and polydat object definition
+'''
 
 pspoly_home = _os.getcwd()
 pspoly_save_option = 'load'
@@ -27,14 +41,6 @@ def load(address):
 	except:
 		print(f'WARNING: A polydat object \'{address}\' could not be loaded.')
 
-'''
-The polydat type is the main datatype for PSPoly Python. The initializer takes the name of the polydat, its base image, and the pixel size
-of the base image in nanometers as arguments. The scale factor is an optional argument which expands individual pixels for subpixel processing.
-The expansion process will automatically adjust the saved pixel size so that anaylsis will remain accurate. The root argument gives the path
-to the super folder of the polydat within the pspoly_home directory. For example, the data object ex at {pspoly_home}/CL_test/mask/skeleton/ex
-would have root CL_test/mask/skeleton. No root should be specified for a polydat stored directly in the pspoly_home directory. The save option
-defaults to True and specifies whether or not the polydat should be stored to disk. This option should usually not be changed.
-'''
 class polydat:
 	def __init__(self,name,img,px_size,scale_factor=1,root='',save=True):
 
@@ -190,10 +196,12 @@ class polydat:
 		return polydat(name,img,px_size,scale_factor,root,save)
 		
 	# Lists all folders within the polydat. The folder names are equivalent to the names of the nested polydat objects, unless a subfolder has been created manually.
-	def get_subdata(self):
+	def get_subdata(self,style='dict'):
 		path = self.get_path()
 		ldir = _os.listdir(path)
-		return [load(_os.path.join(self.get_id(),f)) for f in ldir if _os.path.isdir(_os.path.join(path,f))]
+		subdata = [load(_os.path.join(self.get_id(),f)) for f in ldir if _os.path.isdir(_os.path.join(path,f))]
+		if style == 'list': return subdata
+		else: return {dat.get_name():dat for dat in subdata}
 
 	def isolate_skeleton(self,particle):
 		return load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}'))
@@ -211,6 +219,17 @@ class polydat:
 			pdat = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}'))
 			bnds = pdat.get_bnd()
 			return skel.get_img()[max(0,bnds[0][0]-pad):min(bnds[0][1]+1+pad,shp[0]),max(0,bnds[1][0]-pad):min(bnds[1][1]+1+pad,shp[1])]
+		elif imtype == 'points':
+			skel = load(_os.path.join(self.get_id(),'mask','skeleton'))
+			shp = self.get_img().shape
+			pdat = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}'))
+			bnds = pdat.get_bnd()
+
+			end_points = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}','end_points')).get_img()
+			branch_points = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}','branch_points')).get_img()
+			bundle_points = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}','bundle_points')).get_img()
+
+			return skel.get_img()[max(0,bnds[0][0]-pad):min(bnds[0][1]+1+pad,shp[0]),max(0,bnds[1][0]-pad):min(bnds[1][1]+1+pad,shp[1])] + 3*end_points + branch_points + bundle_points
 		else:
 			shp = self.get_img().shape
 			pdat = load(_os.path.join(self.get_id(),'mask','skeleton',f'particle-{particle}'))
@@ -226,13 +245,13 @@ def get_save_option():
 	return pspoly_save_option
 
 '''
-The threshold method creates a subdat consisting of a thresholded mask of the original polydat. The default options will apply the OTSU method
-to the polydat data, which automatically determines the appropriate threshold height. All regions in contact with the border of the image will
-be removed from the mask to improve the quality of analysis. The threshold argument specifies the method for creating a mask image from the
-original. If a method is used that does not automatically determine the threshold height, the height to be used should be passed to the t
-argument. The save option specifies whether or not the subdat will be saved to disk.
+Advanced Methods
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Features used in the PS-Poly algorithm that the end-user need not implement directly
+May not be optimized for ease of use and may not accept high-level polydat inputs
 '''
-def threshold(dat,threshold_function=filters.otsu_central,t=None,save=True):
+
+def threshold(dat,threshold_function=filters.threshold,t=None,save=True):
 	if t == None: return dat.subdat('mask',threshold_function(dat.get_img()),dat.get_px_size(),save=save)
 	else: return dat.subdat('mask',threshold_function(dat.get_img(),t),dat.get_px_size(),save=save)
 
@@ -254,26 +273,18 @@ def separate_particles(dat):
 	
 # Lists all subdat names beginning with 'particle'. These should be the subdat objects created by the separate_particles method.
 def list_particles(dat):
-	subdata = dat.get_subdata()
+	subdata = dat.get_subdata('list')
 	index = 0
 	while True:
 		subsubdata = []
 		for d in subdata[index:]:
-			subsubdata.extend(d.get_subdata())
+			subsubdata.extend(d.get_subdata('list'))
 		l = len(subsubdata)
 		index += l
 		subdata.extend(subsubdata)
 		if l == 0: break
 	return [d for d in subdata if d.get_name()[:8] == 'particle']
 
-'''
-Creates four subdat objects: one for the end points, one for the branch points, one for the bundle points, and one for the secondary branch
-points in a polydat. The original data must be in skeletonized form. An end point is any location in a skeleton where there is only
-connectivity in one direction. A branch point has connectivity in more than two directions. A bundle point is a group of four adjacent active
-points in a skeleton, which would ideally be classified as branch points, but they are not because the different branches do not all come from
-the same location. Secondary branch points are those points in a skeleton that would be classified as branch points if the original branch
-points were removed.
-'''
 def identify_points(dat):
 	points_tuple = filters.mainpoints(dat.get_img())
 
@@ -294,6 +305,8 @@ def split_particle(dat):
 	bundle_points = load(_os.path.join(path,'bundle_points')).get_img()
 	branch_points2 = load(_os.path.join(path,'branch_points2')).get_img()
 
+	branch_points = utilities.relu(branch_points-bundle_points)
+
 	labeled_img = filters._label(utilities.relu(img-bundle_points-branch_points-branch_points2))
 
 	particles = []
@@ -312,6 +325,10 @@ def split_particle(dat):
 			if _np.sum(particlep[b2c[i,0]:b2c[i,0]+3,b2c[i,1]:b2c[i,1]+3]) > 0:
 				particle[b2c[i,0],b2c[i,1]] = particlepc[b2c[i,0]+1,b2c[i,1]+1] = 1
 		particlep = _np.copy(particlepc)
+		for i in range(b2c.shape[0]):
+			if particlep[b2c[i,0]+1,b2c[i,1]+2] + particlep[b2c[i,0],b2c[i,1]+1] + particlep[b2c[i,0]+1,b2c[i,1]] + particlep[b2c[i,0]+2,b2c[i,1]+1] > 0:
+				particle[b2c[i,0],b2c[i,1]] = particlepc[b2c[i,0]+1,b2c[i,1]+1] = 1
+		particlep = _np.copy(particlepc)
 		for i in range(bc.shape[0]):
 			if _np.sum(particlep[bc[i,0]:bc[i,0]+3,bc[i,1]:bc[i,1]+3]) > 0:
 				particle[bc[i,0],bc[i,1]] = 1
@@ -320,11 +337,11 @@ def split_particle(dat):
 				particle[bdc[i,0],bdc[i,1]] = 1
 
 	composite = sum(particles)
-	labeled_missed = filters._label(utilities.relu(img-composite))
+	labeled_secondary = filters._label(utilities.relu(branch_points2-composite))
 
 	particles_missed = []
-	for v in range(_np.max(labeled_missed)):
-		particles_missed.append((labeled_missed == v+1).astype('int'))
+	for v in range(_np.max(labeled_secondary)):
+		particles_missed.append((labeled_secondary == v+1).astype('int'))
 
 	for particle in particles_missed:
 		particlep = _np.pad(particle,1)
@@ -335,82 +352,33 @@ def split_particle(dat):
 			if _np.sum(particlep[bdc[i,0]:bdc[i,0]+3,bdc[i,1]:bdc[i,1]+3]) > 0:
 				particle[bdc[i,0],bdc[i,1]] = 1
 
-	particles_additional = []
-	for particle in particles_missed:
-		n_e = _np.sum(end_points*particle)
-		n_b = _np.max(filters._label((branch_points+bundle_points)*particle > 0).astype('int'))
-		if n_e+n_b > 1:
-			particles_additional.append(particle)
+	particles.extend(particles_missed)
 
-	particles.extend(particles_additional)
+	composite = sum(particles)
+	labeled_bundle = filters._label(utilities.relu(bundle_points-composite))
+
+	particles_missed = []
+	for v in range(_np.max(labeled_bundle)):
+		particles_missed.append((labeled_bundle == v+1).astype('int'))
+
+	particles.extend(particles_missed)
+
+	particles_missed = []
+	for x in range(len(bc)):
+		for y in range(x+1,len(bc)):
+			if abs(bc[y][0]-bc[x][0]) <= 1 and abs(bc[y][1]-bc[x][1]) <= 1:
+				missed = _np.zeros(branch_points.shape)
+				missed[bc[x][0],bc[x][1]] = missed[bc[y][0],bc[y][1]] = 1
+				particles_missed.append(missed)
+		for y in range(len(bdc)):
+			if abs(bdc[y][0]-bc[x][0]) <= 1 and abs(bdc[y][1]-bc[x][1]) <= 1:
+				missed = _np.zeros(branch_points.shape)
+				missed[bc[x][0],bc[x][1]] = missed[bdc[y][0],bdc[y][1]] = 1
+				particles_missed.append(missed)
+
+	particles.extend(particles_missed)
 
 	return particles
-
-# Returns a simple graph indicating the structure of the polydat. The input must have identified points.
-def graphify(dat):
-	particles = split_particle(dat)
-	path = dat.get_id()
-	bundle_points = load(_os.path.join(path,'bundle_points')).get_img()
-	end_points = load(_os.path.join(path,'end_points')).get_img()
-	branch_points = load(_os.path.join(path,'branch_points')).get_img()
-
-	bundle_coords = []
-	labeled_bundles = filters._label(bundle_points)
-	for v in range(_np.max(labeled_bundles)):
-		bundle_coords.append(_np.array(_np.where(labeled_bundles == v+1)).T)
-
-	branch_coords = _np.array(_np.where(end_points + branch_points == 1)).T
-
-	lbranch = len(branch_coords)
-	lbundle = len(bundle_coords)
-
-	graph = dict([(i,[]) for i in range(lbranch + lbundle)])
-
-	for i in range(lbranch):
-		for p in range(len(particles)):
-			if particles[p][branch_coords[i][0],branch_coords[i][1]] == 1:
-				for j in range(lbranch):
-					if i != j and particles[p][branch_coords[j][0],branch_coords[j][1]] == 1:
-						if j not in graph[i]: graph[i].append(j)
-				for j in range(lbranch, lbranch + lbundle):
-					if (particles[p][bundle_coords[j-lbranch][...,0],bundle_coords[j-lbranch][...,1]] == 1).any():
-						if j not in graph[i]: graph[i].append(j)
-            
-	for i in range(lbranch, lbranch + lbundle):
-		for p in range(len(particles)):
-			if (particles[p][bundle_coords[i-lbranch][...,0],bundle_coords[i-lbranch][...,1]] == 1).any():
-				for j in range(lbranch):
-					if particles[p][branch_coords[j][0],branch_coords[j][1]] == 1:
-						if j not in graph[i]: graph[i].append(j)
-				for j in range(lbranch, lbranch + lbundle):
-					if i != j and (particles[p][bundle_coords[j-lbranch][...,0],bundle_coords[j-lbranch][...,1]] == 1).any():
-						if j not in graph[i]: graph[i].append(j)
-
-	branch_groups = []
-	labeled_branches = filters._label(end_points + branch_points)
-	for v in range(_np.max(labeled_branches)):
-		branch_groups.append(_np.array(_np.where(labeled_branches == v+1)).T)
-
-	lgroups = len(branch_groups)
-
-	condensed_graph = dict([(i,[]) for i in range(lgroups + lbundle)])
-	mapping = _np.zeros(lbranch + lbundle,dtype='int')
-
-	for c in range(lbranch):
-		for g in range(lgroups):
-			for coord in branch_groups[g]:
-				if (branch_coords[c] == coord).all():
-					mapping[c] = g
-
-	for c in range(lbundle):
-		mapping[lbranch+c] = lgroups+c
-
-	for n0 in graph:
-		for n1 in graph[n0]:
-			if mapping[n1] not in condensed_graph[mapping[n0]] and mapping[n1] != mapping[n0]: condensed_graph[mapping[n0]].append(mapping[n1])
-
-	return condensed_graph
-
 
 # Completes all necessary steps prior to analyzing the polydat. Returns a skeletonized polydat, which will be the input to the analyze method. Will only return the skeleton if the polydat has been verified.
 def prepare(dat):
@@ -424,20 +392,9 @@ def prepare(dat):
 	else:
 		print(f'WARNING: An old polydat object has been loaded instead of preparing \'{dat.get_id()}\' again.')
 		if dat.get_root() == '':
-			return load(_os.path.join(dat.get_name(),'mask/skeleton'))
+			return load(_os.path.join(dat.get_name(),'mask','skeleton'))
 		else:
-			return load(_os.path.join(dat.get_root(),dat.get_name(),'mask/skeleton'))
-		
-# Displays the polydat. If the particle option is set, displays the indicated subparticle of a top-level polydat object.
-def show(dat,particle=None,imtype='',pad=0,cmap='viridis'):
-	if particle == None:
-		if imtype == 'mask': dat = load(_os.path.join(dat.get_id(),'mask'))
-		elif imtype == 'skeleton': dat = load(_os.path.join(dat.get_id(),'mask','skeleton'))
-		_plt.imshow(dat.get_img(),cmap=cmap)
-		_plt.show()
-	else:
-		_plt.imshow(dat.get_particle(particle,imtype,pad),cmap=cmap)
-		_plt.show()
+			return load(_os.path.join(dat.get_root(),dat.get_name(),'mask','skeleton'))
 
 # Returns an image indicating the height of every position in the polydat. The input must be a binary mask.
 def measure_height(dat):
@@ -466,17 +423,19 @@ def mean_height(dat):
 # Classifies the polydat based on structure and height.
 def classify(dat,threshold=None,noise=0.8):
 	path = dat.get_id()
+
 	end_points = load(_os.path.join(path,'end_points')).get_img()
 	branch_points = load(_os.path.join(path,'branch_points')).get_img()
 	bundle_points = load(_os.path.join(path,'bundle_points')).get_img()
 
-	if threshold == None: threshold = 1.5*mean_height(load(dat.get_root()))
+	branch_points = utilities.relu(branch_points-bundle_points)
 
 	skeleton = dat.get_img()
 	height = measure_height(dat)
-	high = skeleton*(height > threshold)
+	if threshold == None: high = skeleton*0
+	else: high = skeleton*(height > threshold)
 
-	nodes = _np.max(filters._label(end_points)) + _np.max(filters._label(branch_points)) + _np.max(filters._label(bundle_points))
+	nodes = _np.sum(end_points) + _np.sum(branch_points) + _np.max(filters._label(bundle_points,connectivity=1))
 
 	if _np.sum(high) == 0:
 		if nodes == 0: return 'looped'
@@ -516,7 +475,7 @@ def display_results(info):
 	n_noise = info[2]
 	Lp = info[3]
 
-	print(f'Particle Type\t\tNumber of Features\t\tAverage length (nm)\t\tPercentage of Total particleization Length\nLinear\t\t\t\t{stats[0][0]}\t\t\t\t{stats[0][1]}\t\t\t\t{stats[0][2]}\nLooped\t\t\t\t{stats[1][0]}\t\t\t\t{stats[1][1]}\t\t\t\t{stats[1][2]}\nBranched (no looping)\t\t{stats[2][0]}\t\t\t\t{stats[2][1]}\t\t\t\t{stats[2][2]}\nBranched (with looping)\t\t{stats[3][0]}\t\t\t\t{stats[3][1]}\t\t\t\t{stats[3][2]}\nOverlapped\t\t\t{stats[4][0]}\t\t\t\t{stats[4][1]}\t\t\t\t{stats[4][2]}\n')
+	print(f'Particle Type\t\tNumber of Features\t\tAverage length (nm)\t\tPercentage of Total Polymerization Length\nLinear\t\t\t\t{stats[0][0]}\t\t\t\t{stats[0][1]}\t\t\t\t{stats[0][2]}\nLooped\t\t\t\t{stats[1][0]}\t\t\t\t{stats[1][1]}\t\t\t\t{stats[1][2]}\nBranched (no looping)\t\t{stats[2][0]}\t\t\t\t{stats[2][1]}\t\t\t\t{stats[2][2]}\nBranched (with looping)\t\t{stats[3][0]}\t\t\t\t{stats[3][1]}\t\t\t\t{stats[3][2]}\nOverlapped\t\t\t{stats[4][0]}\t\t\t\t{stats[4][1]}\t\t\t\t{stats[4][2]}\n')
 	print(f'Number of High Points: {n_high}\nNumber of Noise Particles: {n_noise}\n')
 	print(f'Persistence Length (nm): {Lp}')
 
@@ -600,6 +559,12 @@ def analyze(dat,display=True):
 	if display: display_results(info)
 	else: return info
 
+'''
+User-interface Methods
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Implementations of the PS-Poly alogorithm designed for use by the end-user
+'''
+
 # Runs the full process on the polydat.
 def run(img,px_size,scale_factor=1,name=None,display=True):
 	if name == None:
@@ -614,3 +579,67 @@ def run(img,px_size,scale_factor=1,name=None,display=True):
 		skeleton = prepare(pdat)
 		if display: analyze(skeleton,display)
 		else: return analyze(skeleton,display)
+
+# Displays the polydat. If the particle option is set, displays the indicated subparticle of a top-level polydat object.
+def show(dat,particle=None,imtype='',pad=0,cmap='viridis'):
+	if particle == None:
+		if imtype == 'mask': img = load(_os.path.join(dat.get_id(),'mask')).get_img()
+		elif imtype == 'skeleton': img = load(_os.path.join(dat.get_id(),'mask','skeleton')).get_img()
+		elif imtype == 'points':
+			end_points = load(_os.path.join(dat.get_id(),'end_points')).get_img()
+			branch_points = load(_os.path.join(dat.get_id(),'branch_points')).get_img()
+			bundle_points = load(_os.path.join(dat.get_id(),'bundle_points')).get_img()
+			img = dat.get_img() + 3*end_points + branch_points + bundle_points
+		else: img = dat.get_img()
+		_plt.imshow(img,cmap=cmap)
+		_plt.show()
+	else:
+		_plt.imshow(dat.get_particle(particle,imtype,pad),cmap=cmap)
+		_plt.show()
+
+# Returns a simple graph indicating the structure of the polydat. The input must have identified points.
+def graphify(dat,particle=None):
+	if particle == None: path = _os.path.join(dat.get_id(),'mask','skeleton')
+	else: path = _os.path.join(dat.get_id(),'mask','skeleton',f'particle-{particle}')
+
+	particles = split_particle(load(path))
+
+	end_points = load(_os.path.join(path,'end_points')).get_img()
+	branch_points = load(_os.path.join(path,'branch_points')).get_img()
+	bundle_points = load(_os.path.join(path,'bundle_points')).get_img()
+
+	branch_points = utilities.relu(branch_points-bundle_points)
+
+	branch_coords = _np.array(_np.where(end_points + branch_points == 1)).T
+
+	bundle_coords = []
+	labeled_bundles = filters._label(bundle_points,connectivity=1)
+	for v in range(_np.max(labeled_bundles)):
+		bundle_coords.append(_np.array(_np.where(labeled_bundles == v+1)).T)
+
+	lbranch = len(branch_coords)
+	lbundle = len(bundle_coords)
+
+	graph = dict([(i,[]) for i in range(lbranch + lbundle)])
+
+	for i in range(lbranch):
+		for p in range(len(particles)):
+			if particles[p][branch_coords[i][0],branch_coords[i][1]] == 1:
+				for j in range(lbranch):
+					if i != j and particles[p][branch_coords[j][0],branch_coords[j][1]] == 1:
+						if j not in graph[i]: graph[i].append(j)
+				for j in range(lbranch, lbranch + lbundle):
+					if (particles[p][bundle_coords[j-lbranch][...,0],bundle_coords[j-lbranch][...,1]] == 1).any():
+						if j not in graph[i]: graph[i].append(j)
+            
+	for i in range(lbranch, lbranch + lbundle):
+		for p in range(len(particles)):
+			if (particles[p][bundle_coords[i-lbranch][...,0],bundle_coords[i-lbranch][...,1]] == 1).any():
+				for j in range(lbranch):
+					if particles[p][branch_coords[j][0],branch_coords[j][1]] == 1:
+						if j not in graph[i]: graph[i].append(j)
+				for j in range(lbranch, lbranch + lbundle):
+					if i != j and (particles[p][bundle_coords[j-lbranch][...,0],bundle_coords[j-lbranch][...,1]] == 1).any():
+						if j not in graph[i]: graph[i].append(j)
+
+	return graph
